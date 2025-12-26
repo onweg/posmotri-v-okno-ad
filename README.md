@@ -1,1 +1,1 @@
-https://github.com/onweg/posmotri-v-okno-fd/
+https://github.com/onweg/posmotri-v-okno-ad
