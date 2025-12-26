@@ -4,6 +4,32 @@ const cardsOnPage = 5;
 const BASE_URL = 'https://v-content.practicum-team.ru';
 const endpoint = `${BASE_URL}/api/videos?pagination[pageSize]=${cardsOnPage}&`;
 
+// Демо-данные для fallback
+const demoData = {
+  results: [
+    {
+      id: 1,
+      city: "Санкт-Петербург",
+      description: "Вид на Неву и Петропавловскую крепость",
+      video: { url: "/demo-videos/spb.mp4" },
+      poster: { url: "/demo-images/spb-poster.jpg" },
+      thumbnail: { url: "/demo-images/spb-thumb.jpg" }
+    },
+    {
+      id: 2,
+      city: "Москва",
+      description: "Красная площадь и Кремль",
+      video: { url: "/demo-videos/moscow.mp4" },
+      poster: { url: "/demo-images/moscow-poster.jpg" },
+      thumbnail: { url: "/demo-images/moscow-thumb.jpg" }
+    }
+  ],
+  pagination: {
+    page: 1,
+    pageCount: 1
+  }
+};
+
 /* ЭЛЕМЕНТЫ СТРАНИЦЫ */
 const cardsList = document.querySelector('.content__list');
 const cardsContainer = document.querySelector('.content__list-container');
@@ -59,7 +85,27 @@ form.onsubmit = (e) => {
 
 async function mainMechanics(endpoint) {
   try {
-    const data = await (await fetch(endpoint)).json();
+    // Добавляем обработку CORS и таймаут
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 секунд таймаут
+    
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      mode: 'cors',
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
     cardsOnPageState = data.results;
 
     if (!data?.results?.[0]) {
@@ -108,18 +154,71 @@ async function mainMechanics(endpoint) {
       cardTmp: cardTmp,
     });
   } catch (err) {
-    if (err.message === 'not-found') {
+    console.error('Ошибка при загрузке данных:', err);
+    
+    // Пытаемся использовать демо-данные при ошибке API
+    if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
+      console.log('Используем демо-данные из-за проблем с API');
+      useDemoData();
+    } else if (err.message === 'not-found') {
       showError(videoContainer, videoNotFoundTmp, 'Нет подходящих видео =(');
     } else {
       showError(videoContainer, videoNotFoundTmp, 'Ошибка получения данных :(');
     }
-    console.log(err);
+    
     removePreloader(videoContainer, '.preloader');
     removePreloader(cardsContainer, '.preloader');
   }
 }
 
 /* УТИЛИТЫ */
+
+// Функция для использования демо-данных при недоступности API
+function useDemoData() {
+  cardsOnPageState = demoData.results;
+  
+  appendCards({
+    baseUrl: '',
+    dataArray: demoData.results,
+    cardTmp,
+    container: cardsList,
+  });
+
+  // Показываем сообщение о демо-режиме
+  const demoMessage = document.createElement('div');
+  demoMessage.className = 'demo-message';
+  demoMessage.style.cssText = `
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(255, 193, 7, 0.9);
+    color: #000;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    z-index: 1000;
+  `;
+  demoMessage.textContent = 'Демо-режим: API недоступен';
+  document.body.appendChild(demoMessage);
+  
+  // Убираем сообщение через 5 секунд
+  setTimeout(() => {
+    if (demoMessage.parentNode) {
+      demoMessage.parentNode.removeChild(demoMessage);
+    }
+  }, 5000);
+  
+  // Добавляем класс для стилизации скроллбара
+  cardsContainer.classList.add('custom-scrollbar');
+  
+  chooseCurrentVideo({
+    baseUrl: '',
+    videoData: cardsOnPageState,
+    cardLinksSelector: '.content__card-link',
+    currentLinkClassName: 'content__card-link_current',
+    mainVideo: videoElement,
+  });
+}
 
 // Простой промис, чтобы легче ставить паузу ✅
 
@@ -177,6 +276,13 @@ function appendCards({ baseUrl, dataArray, cardTmp, container }) {
 function setVideo({ baseUrl, video, videoUrl, posterUrl }) {
   video.setAttribute('src', `${baseUrl}${videoUrl}`);
   video.setAttribute('poster', `${baseUrl}${posterUrl}`);
+  
+  // Добавляем обработку ошибок загрузки видео
+  video.onerror = function() {
+    console.error('Ошибка загрузки видео:', videoUrl);
+    // Можно показать placeholder или сообщение об ошибке
+  };
+  
   console.log('Подставил видео в основной блок');
 }
 
@@ -276,7 +382,26 @@ function showMoreCards({
     let currentPage = dataArray.pagination.page;
     let urlToFetch = `${initialEndpoint}pagination[page]=${(currentPage += 1)}&`;
     try {
-      let data = await (await fetch(urlToFetch)).json();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(urlToFetch, {
+        method: 'GET',
+        mode: 'cors',
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      let data = await response.json();
       buttonInDOM.remove();
       cardsOnPageState = cardsOnPageState.concat(data.results);
       appendCards({
@@ -302,7 +427,9 @@ function showMoreCards({
         cardTmp,
       });
     } catch (err) {
-      return err;
+      console.error('Ошибка при загрузке дополнительных карточек:', err);
+      buttonInDOM.textContent = 'Ошибка загрузки';
+      buttonInDOM.disabled = true;
     }
   });
 }
